@@ -26,8 +26,17 @@
     NSMutableArray *images = [[NSMutableArray alloc] initWithCapacity:[chapters count]];
     
     AVAsset *asset = [AVAsset assetWithURL:file];
-    
-    if ([asset tracksWithMediaCharacteristic:AVMediaCharacteristicVisual]) {
+    NSArray<AVAssetTrack *> *visualTracks = [asset tracksWithMediaCharacteristic:AVMediaCharacteristicVisual];
+    NSLog(@"[ChapterPreview] source=%@ chapters=%lu position=%.3f visualTracks=%lu duration=%.3f playable=%d readable=%d",
+          file.path, (unsigned long)chapters.count, (double)position,
+          (unsigned long)visualTracks.count, CMTimeGetSeconds(asset.duration),
+          asset.playable, asset.readable);
+    for (AVAssetTrack *track in visualTracks) {
+        NSLog(@"[ChapterPreview] video track=%d mediaType=%@ nominalFrameRate=%.3f playable=%d formats=%@",
+              track.trackID, track.mediaType, track.nominalFrameRate, track.playable, track.formatDescriptions);
+    }
+
+    if (visualTracks.count > 0) {
         AVAssetImageGenerator *generator = [AVAssetImageGenerator assetImageGeneratorWithAsset:asset];
         generator.appliesPreferredTrackTransform = YES;
         generator.apertureMode = AVAssetImageGeneratorApertureModeCleanAperture;
@@ -37,11 +46,14 @@
         CGFloat offset;
         MP42Duration assetDuration = CMTimeGetSeconds(asset.duration) * 1000;
 
+        NSUInteger failures = 0;
         for (NSUInteger idx = 0; idx < chapters.count; idx++)
         {
             MP42TextSample *chapter = chapters[idx];
 
             if (chapter.timestamp > assetDuration) {
+                NSLog(@"[ChapterPreview] chapter=%lu starts after duration: chapterMs=%lld durationMs=%lld",
+                      (unsigned long)idx, (long long)chapter.timestamp, (long long)assetDuration);
                 break;
             }
 
@@ -59,7 +71,20 @@
 
             CMTime time = CMTimeMake(chapter.timestamp + MAX(MINIMUM_OFFSET, offset), 1000);
 
-            CGImageRef imgRef = [generator copyCGImageAtTime:time actualTime:NULL error:NULL];
+            NSError *frameError = nil;
+            CMTime actualTime = kCMTimeInvalid;
+            CGImageRef imgRef = [generator copyCGImageAtTime:time actualTime:&actualTime error:&frameError];
+            if (!imgRef) {
+                failures++;
+                NSLog(@"[ChapterPreview] FAILED chapter=%lu startMs=%lld nextMs=%lld requested=%.3f duration=%.3f errorDomain=%@ code=%ld description=%@ userInfo=%@",
+                      (unsigned long)idx, (long long)chapter.timestamp, (long long)nextChapterTimestamp,
+                      CMTimeGetSeconds(time), CMTimeGetSeconds(asset.duration),
+                      frameError.domain, (long)frameError.code, frameError.localizedDescription, frameError.userInfo);
+            } else {
+                NSLog(@"[ChapterPreview] OK chapter=%lu requested=%.3f actual=%.3f dimensions=%zux%zu",
+                      (unsigned long)idx, CMTimeGetSeconds(time), CMTimeGetSeconds(actualTime),
+                      CGImageGetWidth(imgRef), CGImageGetHeight(imgRef));
+            }
             if (imgRef) {
                 NSSize size = NSMakeSize(CGImageGetWidth(imgRef), CGImageGetHeight(imgRef));
                 NSImage *frame = [[NSImage alloc] initWithCGImage:imgRef size:size];
@@ -67,10 +92,14 @@
                 [images addObject:frame];
             }
             
-            CGImageRelease(imgRef);
+            if (imgRef) CGImageRelease(imgRef);
         }
+        NSLog(@"[ChapterPreview] completed generated=%lu failed=%lu requestedChapters=%lu",
+              (unsigned long)images.count, (unsigned long)failures, (unsigned long)chapters.count);
+    } else {
+        NSLog(@"[ChapterPreview] no visual tracks found; no previews generated");
     }
-    
+
     return images;
 }
 

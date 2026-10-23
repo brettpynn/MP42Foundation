@@ -1278,6 +1278,10 @@ static void logCallback(MP4LogLevel loglevel, const char *fmt, va_list ap) {
         refTrack = self.itracks.firstObject;
     }
 
+    NSLog(@"[ChapterPreview] eligibility file=%@ chapterTrack=%d chapterCount=%lu refTrack=%d decodable=%ld existingJPEGTrack=%u position=%.3f",
+          self.URL.path, chapterTrack != nil, (unsigned long)chapterTrack.chapters.count,
+          refTrack != nil, (long)decodable, (unsigned int)jpegTrack, (double)position);
+
     if (chapterTrack && decodable && (!jpegTrack)) {
         NSArray<NSImage *> *images = [MP42PreviewGenerator generatePreviewImagesFromChapters:chapterTrack.chapters
                                                                                      fileURL:self.URL
@@ -1285,7 +1289,12 @@ static void logCallback(MP4LogLevel loglevel, const char *fmt, va_list ap) {
 
         // If we haven't got any images, return.
         if (!images || !images.count) {
+            NSLog(@"[ChapterPreview] aborting: no images generated for %@", self.URL.path);
             return NO;
+        }
+        if (images.count != chapterTrack.chapters.count) {
+            NSLog(@"[ChapterPreview] WARNING: generated %lu images for %lu chapters; existing index-based assignment may misassociate previews",
+                  (unsigned long)images.count, (unsigned long)chapterTrack.chapters.count);
         }
 
         NSArray<MP42TextSample *> *chapters = chapterTrack.chapters;
