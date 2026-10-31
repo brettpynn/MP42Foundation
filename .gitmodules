@@ -1,3 +1,4 @@
 [submodule "contrib"]
 	path = contrib
-	url = https://github.com/SublerApp/contrib.git
+	url = https://github.com/brettpynn/contrib.git
+	branch = int-hevc-hang
